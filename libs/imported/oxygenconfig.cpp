@@ -215,6 +215,7 @@ void KGlobalSettings::kdisplaySetFont()
         QApplication::setFont( menuFont, "KPopupTitle" );
 
         QApplication::setFont( g.readEntry("toolbarFont",generalFont), "QToolBar" );
+        QApplication::setFont(g.readEntry("toolbarFont", generalFont), "QToolButton");
         // TODO: set fonts: {"fixed","smallestReadableFont"}
     }
 }
