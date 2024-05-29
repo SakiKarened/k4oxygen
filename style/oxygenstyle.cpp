@@ -5074,7 +5074,7 @@ namespace Oxygen
         }
 
         QRect textRect( handleRTL( bOpt, QRect( x, y, w, h ) ) );
-        if( !bOpt->icon.isNull() ) textRect.adjust( 0, 0, 0, 1 );
+        if( !bOpt->icon.isNull() ) textRect.adjust( 0, -3, 0, 1 );
 
         const QPalette::ColorRole role( flat ? QPalette::WindowText : QPalette::ButtonText );
         drawItemText( painter, textRect, Qt::AlignCenter | Qt::TextShowMnemonic, palette, enabled, bOpt->text, role );
@@ -7277,33 +7277,122 @@ namespace Oxygen
     }
 
     //___________________________________________________________________________________
-    bool Style::drawToolButtonLabelControl( const QStyleOption* option, QPainter* painter, const QWidget* widget ) const
+    bool Style::drawToolButtonLabelControl(const QStyleOption *option, QPainter *painter, const QWidget *widget) const
     {
+        // Cast option to QStyleOptionToolButton
+        const QStyleOptionToolButton *toolButtonOption = qstyleoption_cast<const QStyleOptionToolButton *>(option);
+        if (!toolButtonOption) return true;
 
-        // need to customize palettes to deal with autoraised buttons
-        const State& flags( option->state );
+        // Copy rect and palette
+        const QRect &rect = option->rect;
+        const QPalette &palette = option->palette;
 
-        // normal processing if not autoRaised
-        if( flags & State_AutoRaise )
-        {
+        // State
+        const State &state = option->state;
+        const bool enabled = state & State_Enabled;
+        const bool sunken = (state & State_On) || (state & State_Sunken);
+        const bool mouseOver = enabled && (state & State_MouseOver);
+        const bool flat = state & State_AutoRaise;
 
-            const QStyleOptionToolButton* toolButtonOpt( qstyleoption_cast<const QStyleOptionToolButton*>( option ) );
-            if( !toolButtonOpt ) return true;
+        const bool hasArrow = toolButtonOption->features & QStyleOptionToolButton::Arrow;
+        const bool hasIcon = !hasArrow && !toolButtonOption->icon.isNull();
+        const bool hasText = !toolButtonOption->text.isEmpty();
 
-            QStyleOptionToolButton localOption( *toolButtonOpt );
-            localOption.palette.setColor( QPalette::ButtonText, option->palette.color( QPalette::WindowText ) );
+        // Icon size
+        QSize iconSize = toolButtonOption->iconSize;
+        if (iconSize.isEmpty()) {
+            // Set a default icon size if not specified
+            iconSize = QSize(16, 16);
+        }
 
-            QCommonStyle::drawControl( CE_ToolButtonLabel, &localOption, painter, widget );
+        // Ensure icon size fits within the button's bounds
+        if (iconSize.width() > rect.width() || iconSize.height() > rect.height()) {
+            iconSize.scale(rect.size(), Qt::KeepAspectRatio);
+        }
 
-        } else {
+        // Text size
+        int textFlags = Qt::TextShowMnemonic;
+        const QSize textSize = option->fontMetrics.size(textFlags, toolButtonOption->text);
 
-            QCommonStyle::drawControl( CE_ToolButtonLabel, option, painter, widget );
+        // Adjust text and icon rect based on options
+        QRect iconRect;
+        QRect textRect;
 
+
+        // QT Text only mode
+        if (hasText && (!hasArrow && !hasIcon || toolButtonOption->toolButtonStyle == Qt::ToolButtonTextOnly)) {
+            textRect = rect;
+            textFlags |= Qt::AlignCenter;
+
+        }
+        //QT Icon only mode
+        else if ((hasArrow || hasIcon) && (!hasText || toolButtonOption->toolButtonStyle == Qt::ToolButtonIconOnly)) {
+
+            iconRect = QRect(QPoint((rect.width() - iconSize.width()) / 2, (rect.height() - iconSize.height()) / 2), iconSize);
+
+        }
+        // QT Text Under Icon
+        else if (toolButtonOption->toolButtonStyle == Qt::ToolButtonTextUnderIcon) {
+            int contentsHeight = iconSize.height() + textSize.height() + ToolButton_ContentsMargin;
+            iconRect = QRect(QPoint(rect.left() + (rect.width() - iconSize.width()) / 2, rect.top() + (rect.height() - contentsHeight) / 2), iconSize);
+            textRect = QRect(QPoint(rect.left() + (rect.width() - textSize.width()) / 2, iconRect.bottom() + ToolButton_ContentsMargin), textSize);
+            textFlags |= Qt::AlignCenter;
+
+        }
+        // QT Text Beside Icon
+        else {
+            int contentsWidth = iconSize.width() + textSize.width() + ToolButton_ContentsMargin;
+            iconRect = QRect(QPoint(rect.left() + (rect.width() - contentsWidth) / 2, rect.top() + (rect.height() - iconSize.height()) / 2), iconSize);
+            textRect = QRect(QPoint(iconRect.right() + ToolButton_ContentsMargin, rect.top() + (rect.height() - textSize.height()) / 2), textSize);
+
+            // Handle right-to-left layouts
+            iconRect = visualRect(option->direction, rect, iconRect);
+            textRect = visualRect(option->direction, rect, textRect);
+
+            textFlags |= Qt::AlignLeft | Qt::AlignVCenter;
+        }
+
+        // Render arrow or icon
+        if (hasArrow && iconRect.isValid()) {
+            QStyleOptionToolButton copy = *toolButtonOption;
+            copy.rect = iconRect;
+            switch (toolButtonOption->arrowType) {
+                case Qt::LeftArrow:
+                    drawPrimitive(PE_IndicatorArrowLeft, &copy, painter, widget);
+                    break;
+                case Qt::RightArrow:
+                    drawPrimitive(PE_IndicatorArrowRight, &copy, painter, widget);
+                    break;
+                case Qt::UpArrow:
+                    drawPrimitive(PE_IndicatorArrowUp, &copy, painter, widget);
+                    break;
+                case Qt::DownArrow:
+                    drawPrimitive(PE_IndicatorArrowDown, &copy, painter, widget);
+                    break;
+                default:
+                    break;
+            }
+
+        } else if (hasIcon && iconRect.isValid()) {
+            // Icon state and mode
+            QIcon::Mode iconMode = enabled ? (mouseOver && flat ? QIcon::Active : QIcon::Normal) : QIcon::Disabled;
+            QIcon::State iconState = sunken ? QIcon::On : QIcon::Off;
+
+            const QPixmap pixmap = toolButtonOption->icon.pixmap(iconSize, iconMode, iconState);
+            painter->drawPixmap(iconRect, pixmap);
+        }
+
+        // Render text
+        if (hasText && textRect.isValid()) {
+            QPalette::ColorRole textRole = flat ? QPalette::WindowText : QPalette::ButtonText;
+            painter->setFont(toolButtonOption->font);
+            painter->setPen(palette.color(textRole));
+            painter->drawText(textRect, textFlags, toolButtonOption->text);
         }
 
         return true;
-
     }
+
 
     //______________________________________________________________
     bool Style::drawComboBoxComplexControl( const QStyleOptionComplex* option, QPainter* painter, const QWidget* widget ) const
